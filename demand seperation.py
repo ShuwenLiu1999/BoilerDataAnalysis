@@ -5,16 +5,19 @@ import pyarrow.parquet as pq
 from tqdm import tqdm
 import numpy as np
 import datetime
+# pandas is used to process data in the format of dataframe
 
-# Constants
+# Define Constants for calculation
 Cwater = 4.2  # kJ/(kg*K)
 ita = 0.9  # efficiency
 
-# Load MaxPowList once
+# Load MaxPowList
+# This list contains the maximum power output of each household in the dataset, it will be used to multiply the percentage power output in the monitoring sequencies in each household
 MaxPowList = pd.read_csv(r'D:\2min-resample\MetaDataSeparation\MetaData Filtered\PowerMaxT.csv', index_col=0)
 
 
 def mainsw_temp(DateTime):
+    #This function is used for generating sinusoidal mains water temperature throughout the year, as an assumption made according to some studies (details in the report)
     day_of_year = DateTime.dayofyear
     ave = 11
     fluc = 5 * np.sin((day_of_year - 141) * 2 * np.pi / 365)
@@ -28,15 +31,15 @@ def extract_and_resample_and_calculate(file, resample_freq='30min', max_pow_list
     # Apply mains water temperature function
     df['MainsWT'] = df.index.to_series().apply(mainsw_temp)
 
-    # Calculate DHW power
+    # Calculate DHW power (using (hot water temperature-mains water temperature)*flow rate)
     df['DHWpow'] = df['HwFlow[L/min](float32)'] * (df['HwTOutlet[degC](float32)'] - df['MainsWT']) * df[
         'ChActive'] * Cwater / (ita * 60)
 
-    # Calculate actual power
+    # Calculate total power input
     max_power = max_pow_list[os.path.basename(file)].iloc[0]
     df['ActPow[%](float32)'] = df['ActPow[%](float32)'] * df['ChActive'] * max_power
 
-    # Resample data
+    # Resample data to new temporal resolution
     resampled_gpow = df['ActPow[%](float32)'].resample(resample_freq).mean() / 200
     resampled_DHWpow = df['DHWpow'].resample(resample_freq).mean() / 2
 
@@ -48,6 +51,7 @@ def extract_and_resample_and_calculate(file, resample_freq='30min', max_pow_list
 
 
 def create_common_time_index(file_list, resample_freq='30min'):
+    # This function is for combining all time stamps in the tested period of all households to generate a time sequence covering all of them.
     min_date, max_date = None, None
 
     for file in tqdm(file_list, desc="Getting Date Stamps"):
